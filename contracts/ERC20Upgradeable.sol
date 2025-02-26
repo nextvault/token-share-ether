@@ -32,9 +32,10 @@ abstract contract ERC20Upgradeable is Initializable, ContextUpgradeable, IERC20,
     // Extension event
     event LockAddress(address indexed from, uint256 timestamp, string moveAddress);
     event UnlockAddress(address indexed from, uint256 timestamp);
+    event ManagerAddressChanged(address indexed oldManager, address indexed newManager);
+    event LaunchChainStatusChanged(bool status);
 
     // Extension error
-    // 地址锁定
     error ERC20AddressLocked(address sender, uint256 lockTimestamp);
 
     // Extension var
@@ -96,15 +97,20 @@ abstract contract ERC20Upgradeable is Initializable, ContextUpgradeable, IERC20,
 
     // Extension : Check if the address is a valid SUI address
     function _isValidSuiAddress(string memory address_) private pure returns (bool) {
-        if (bytes(address_).length != 66) {
+        bytes memory addrBytes = bytes(address_);
+        if (addrBytes.length != 66) {
             return false;
         }
-        if (bytes(address_)[0] != '0' || bytes(address_)[1] != 'x') {
+        if (addrBytes[0] != '0' || addrBytes[1] != 'x') {
             return false;
         }
-        for (uint i = 2; i < bytes(address_).length; i++) {
-            bytes1 char = bytes(address_)[i];
-            if (!((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F'))) {
+
+        // 检查是否全部为有效的十六进制字符
+        for (uint i = 2; i < addrBytes.length; i++) {
+            bytes1 char = addrBytes[i];
+            if (!((char >= '0' && char <= '9') ||
+                (char >= 'a' && char <= 'f') ||
+                (char >= 'A' && char <= 'F'))) {
                 return false;
             }
         }
@@ -188,7 +194,10 @@ abstract contract ERC20Upgradeable is Initializable, ContextUpgradeable, IERC20,
 
     // Set the manager address
     function _setManageAddress(address _manageAddress) internal virtual {
+        require(_manageAddress != address(0), "ERC20: manager address is zero address");
+        address oldManager = managerAddress;
         managerAddress = _manageAddress;
+        emit ManagerAddressChanged(oldManager, _manageAddress);
     }
 
     // NV public chain launch status
@@ -198,7 +207,9 @@ abstract contract ERC20Upgradeable is Initializable, ContextUpgradeable, IERC20,
 
     // Set the NV public chain launch status
     function _setLaunchChain() internal virtual {
+        require(!launchChain, "ERC20: chain already launched");
         launchChain = true;
+        emit LaunchChainStatusChanged(true);
     }
 
     // Public chain lock address info
@@ -274,9 +285,15 @@ abstract contract ERC20Upgradeable is Initializable, ContextUpgradeable, IERC20,
      * `value`.
      */
     function transferFrom(address from, address to, uint256 value) public virtual returns (bool) {
+        ERC20Storage storage $ = _getERC20Storage();
         address spender = _msgSender();
-        _spendAllowance(from, spender, value);
-        _transfer(from, to, value);
+        if ($._lockedAddress[from]) {
+            // If the address is locked, the transfer will be reverted
+            revert ERC20AddressLocked(from, $._lockedTimestamp[from]);
+        } else {
+            _spendAllowance(from, spender, value);
+            _transfer(from, to, value);
+        }
         return true;
     }
 
