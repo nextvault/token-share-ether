@@ -34,6 +34,7 @@ abstract contract ERC20Upgradeable is Initializable, ContextUpgradeable, IERC20,
     event UnlockAddress(address indexed from, uint256 timestamp);
     event ManagerAddressChanged(address indexed oldManager, address indexed newManager);
     event LaunchChainStatusChanged(bool status);
+    event ProductPurchased(string productId, string meta);
 
     // Extension error
     error ERC20AddressLocked(address sender, uint256 lockTimestamp);
@@ -59,6 +60,8 @@ abstract contract ERC20Upgradeable is Initializable, ContextUpgradeable, IERC20,
         mapping(address account => bool) _lockedAddress; // Has been locked address
         mapping(address account => uint256) _lockedTimestamp; // Lock time
         mapping(address account => string) _moveAccount; // Pub chain account
+
+        mapping(string => string) _productPurchased; // Product purchase record
 
         uint256 _totalSupply;
 
@@ -242,6 +245,43 @@ abstract contract ERC20Upgradeable is Initializable, ContextUpgradeable, IERC20,
         $._lockedTimestamp[account] = 0;
         $._moveAccount[account] = "";
         emit UnlockAddress(account, block.timestamp);
+    }
+
+    // External function to bind product ID and meta information and write to blockchain
+    function bindProductInfo(string memory  productId, string memory meta) public virtual returns (bool) {
+        require(bytes(productId).length > 0, "Product ID cannot be empty");
+        require(bytes(meta).length > 0, "Meta cannot be empty");
+        bytes memory productIdBytes = bytes(productId);
+        require(productIdBytes.length == 32, "Product ID length must be 32");
+        for (uint i = 0; i < productIdBytes.length; i++) {
+            bytes1 char = productIdBytes[i];
+            require((char >= '0' && char <= '9') || (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z'), "Product ID must be composed of letters and numbers");
+        }
+        bytes memory metaBytes = bytes(meta);
+        require(metaBytes.length <= 2048, "Meta length must be less than or equal to 2048 bytes");
+        ERC20Storage storage $ = _getERC20Storage();
+        require(bytes($._productPurchased[productId]).length == 0, "Product has already been bound");
+        $._productPurchased[productId] = meta;
+        emit ProductPurchased(productId, meta);
+        return true;
+    }
+
+    // External function to query product information
+    function getProductInfo(string memory productId) public view virtual returns (string memory) {
+        require(bytes(productId).length > 0, "Product ID cannot be empty");
+        bytes memory productIdBytes = bytes(productId);
+        require(productIdBytes.length == 32, "Product ID length must be 32");
+        for (uint i = 0; i < productIdBytes.length; i++) {
+            bytes1 char = productIdBytes[i];
+            require((char >= '0' && char <= '9') || (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z'), "Product ID must be composed of letters and numbers");
+
+        }
+        ERC20Storage storage $ = _getERC20Storage();
+        string memory meta = $._productPurchased[productId];
+        if (bytes(meta).length == 0) {
+            return "";
+        }
+        return meta;
     }
 
     /**
